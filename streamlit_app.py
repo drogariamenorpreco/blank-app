@@ -1,73 +1,76 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
+import urllib.parse
 
 # Configuração da Página
-st.set_page_config(page_title="Farma Lagos - Gestão e Vendas", page_icon="💊", layout="centered")
+st.set_page_config(page_title="FARMA LAGOS - PDV", page_icon="💊", layout="centered")
 
+# Cabeçalho com seu Nome
 st.markdown("<h1 style='text-align: center;'>💊 FARMA LAGOS</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center;'>Claudinei de Jesus da Silva Junior</h3>", unsafe_allow_html=True)
 
-# Carregamento do estoque real
+# Função para Horário de Brasília (UTC-3)
+def get_brasilia_time():
+    return datetime.utcnow() - timedelta(hours=3)
+
+# Carregamento do Estoque
 @st.cache_data
 def carregar_dados():
     try:
-        # Lê o arquivo usando as colunas que aparecem na sua imagem
         df = pd.read_csv("estoque_drogaria.csv")
-        # Renomeia para o padrão que o sistema entende internamente
-        df = df.rename(columns={
-            "Descrição": "Produto", 
-            "Quantidade": "Estoque", 
-            "Preço": "Preco"
-        })
-        # Caso a terceira coluna tenha outro nome, ajustamos aqui
-        if "Preco" not in df.columns:
-            df = df.rename(columns={df.columns[2]: "Preco"})
+        df = df.rename(columns={"Descrição": "Produto", "Quantidade": "Estoque", "Preço": "Preco"})
         return df
-    except Exception as e:
-        st.error(f"Erro ao ler arquivo: {e}")
-        return pd.DataFrame()
+    except:
+        return pd.DataFrame(columns=["Produto", "Preco", "Estoque"])
 
 df = carregar_dados()
 
-# Menu Lateral
-menu = st.sidebar.radio("Ir para:", ["Emitir Pedido / NF", "Estoque & Preços"])
+# Inicializa o Carrinho na sessão
+if 'carrinho' not in st.session_state:
+    st.session_state.carrinho = []
 
-if menu == "Emitir Pedido / NF":
-    st.subheader("🛒 Emitir Venda e Nota Fiscal")
-    
-    produto_pesquisa = st.text_input("🔍 Digite o nome do produto para buscar:")
+menu = st.sidebar.radio("Navegação:", ["Venda (PDV)", "Entrega", "Estoque"])
+
+if menu == "Venda (PDV)":
+    st.subheader("🛒 Adicionar ao Carrinho")
+    produto_pesquisa = st.text_input("🔍 Buscar produto:")
     
     if produto_pesquisa:
         df_filtrado = df[df["Produto"].astype(str).str.contains(produto_pesquisa, case=False, na=False)]
-        
         if not df_filtrado.empty:
-            produto_selecionado = st.selectbox("Selecione o produto:", df_filtrado["Produto"].tolist())
+            prod_sel = st.selectbox("Selecione:", df_filtrado["Produto"].tolist())
+            dados = df_filtrado[df_filtrado["Produto"] == prod_sel].iloc[0]
             
-            dados_prod = df_filtrado[df_filtrado["Produto"] == produto_selecionado].iloc[0]
-            preco_cadastrado = float(dados_prod["Preco"])
-            estoque_atual = int(dados_prod["Estoque"])
+            # Edição de preço e quantidade
+            preco_editavel = st.number_input("Preço de Venda (R$):", value=float(dados["Preco"]))
+            qtd = st.number_input("Quantidade:", min_value=1, value=1)
             
-            st.info(f"💡 Preço: R$ {preco_cadastrado:.2f} | Estoque: {estoque_atual} un")
-            
-            qtd = st.number_input("Quantidade:", min_value=1, max_value=max(1, estoque_atual), value=1)
-            total_item = qtd * preco_cadastrado
-            
-            if st.button("Gerar Nota Fiscal"):
-                st.success("Nota Gerada!")
-                st.markdown(f"""
-                <div style="border: 2px dashed #000; padding: 15px; font-family: monospace;">
-                    <b>68.530.976 CLAUDINEI DE JESUS DA SILVA JUNIOR</b><br>
-                    CNPJ: 68.530.976/0001-00<br>
-                    --------------------------------------------------<br>
-                    <b>ITEM:</b> {produto_selecionado}<br>
-                    <b>QTD:</b> {qtd} | <b>TOTAL:</b> R$ {total_item:.2f}<br>
-                    --------------------------------------------------<br>
-                    <b>Data:</b> {datetime.now().strftime("%d/%m/%Y %H:%M")}
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.warning("Produto não encontrado.")
+            if st.button("➕ Adicionar ao Carrinho"):
+                st.session_state.carrinho.append({"Produto": prod_sel, "Preco": preco_editavel, "Qtd": qtd})
+                st.success(f"{prod_sel} adicionado!")
 
-elif menu == "Estoque & Preços":
-    st.subheader("📦 Estoque Atual")
+    # Exibir Carrinho
+    if st.session_state.carrinho:
+        st.write("### Carrinho Atual")
+        total = 0
+        for i, item in enumerate(st.session_state.carrinho):
+            st.write(f"{item['Qtd']}x {item['Produto']} - R$ {item['Preco']:.2f}")
+            total += item['Preco'] * item['Qtd']
+        st.write(f"**TOTAL: R$ {total:.2f}**")
+        
+        celular = st.text_input("WhatsApp do Cliente (apenas números com DDD):")
+        if st.button("✅ Finalizar e Enviar via WhatsApp"):
+            msg = f"Olá! Segue sua compra na FARMA LAGOS:\nTotal: R$ {total:.2f}\nData: {get_brasilia_time().strftime('%d/%m/%Y %H:%M')}"
+            link = f"https://wa.me/55{celular}?text={urllib.parse.quote(msg)}"
+            st.markdown(f"[🔗 Clique aqui para abrir o WhatsApp do cliente]({link})")
+
+elif menu == "Entrega":
+    st.subheader("🚚 Gestão de Entrega")
+    end = st.text_input("Endereço do Cliente:")
+    taxa = st.number_input("Taxa de Entrega (R$):", value=5.00)
+    if st.button("Registrar Entrega"):
+        st.success(f"Entrega agendada para: {end} | Taxa: R$ {taxa:.2f}")
+
+else:
     st.dataframe(df)
