@@ -6,7 +6,7 @@ from datetime import datetime
 from fpdf import FPDF
 import pdfplumber
 
-st.set_page_config(page_title="Farmácia Menor Preço - Gestão & Pedidos", layout="wide", page_icon="💊")
+st.set_page_config(page_title="Farma Lagos - Gestão & Pedidos", layout="wide", page_icon="💊")
 
 # Estilização
 st.markdown("""
@@ -29,6 +29,12 @@ st.markdown("""
 ARQUIVO_ESTOQUE = "estoque_drogaria.csv"
 ARQUIVO_VENDAS = "vendas_historico.csv"
 ARQUIVO_CLIENTES = "clientes_drogaria.csv"
+
+# Configurações da Loja
+NOME_LOJA = "FARMA LAGOS"
+CNPJ_LOJA = "00.000.000/0001-00"  # Insira seu CNPJ oficial aqui, se desejar
+ENDERECO_LOJA = "Região dos Lagos, Búzios - RJ"
+FILIAL = "Filial 01"
 
 # --- FUNÇÕES DE SALVAMENTO PERMANENTE ---
 def salvar_estoque_disco(df_estoque):
@@ -83,7 +89,7 @@ def gerar_pdf_clientes(df_clientes):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "Relatorio de Clientes - Farmacia Menor Preco", ln=True, align='C')
+    pdf.cell(0, 10, "Relatorio de Clientes - Farma Lagos", ln=True, align='C')
     pdf.ln(5)
     
     pdf.set_font("Arial", 'B', 11)
@@ -141,7 +147,6 @@ def extrair_clientes_de_arquivo(uploaded_file):
             elif any(k in c_lower for k in ['end', 'rua', 'bairro', 'local', 'endereço', 'endereco']):
                 col_end = col
 
-        # Caso as colunas não tenham nomes óbvios, pega por posição das colunas
         if not col_nome and len(df.columns) >= 1: col_nome = df.columns[0]
         if not col_whats and len(df.columns) >= 2: col_whats = df.columns[1]
         if not col_end and len(df.columns) >= 3: col_end = df.columns[2]
@@ -151,7 +156,6 @@ def extrair_clientes_de_arquivo(uploaded_file):
         df_res['WhatsApp'] = df[col_whats].astype(str).str.strip() if col_whats else ""
         df_res['Endereço'] = df[col_end].astype(str).str.strip() if col_end else ""
 
-        # Remove linhas que vieram vazias
         df_res = df_res[df_res['Nome'].str.lower() != 'nan']
         return df_res
 
@@ -170,7 +174,8 @@ if 'clientes' not in st.session_state:
 if 'carrinho' not in st.session_state:
     st.session_state['carrinho'] = []
 
-st.markdown("<h1 class='main-header'>💊 FARMÁCIA MENOR PREÇO</h1>", unsafe_allow_html=True)
+st.markdown(f"<h1 class='main-header'>💊 {NOME_LOJA}</h1>", unsafe_allow_html=True)
+st.caption(f"CNPJ: {CNPJ_LOJA} | {ENDERECO_LOJA} | {FILIAL}")
 
 menu = st.radio(
     "Navegação",
@@ -183,7 +188,7 @@ st.divider()
 
 # ==================== ABA 1: EMITIR PEDIDO & CARRINHO ====================
 if menu == "🛒 Emitir Pedido":
-    st.header("🛒 Emitir Pedido do Cliente")
+    st.header("🛒 Emitir Pedido / Cupom Fiscal")
     
     cli_sel = st.session_state.pop('cliente_para_pedido', None)
     
@@ -241,6 +246,7 @@ if menu == "🛒 Emitir Pedido":
             val_end = cli_sel['Endereço'] if cli_sel else ""
 
             nome_cliente = st.text_input("👤 Nome do Cliente:", value=val_nome, key="nome_cliente")
+            cpf_cliente = st.text_input("📄 CPF / CNPJ do Cliente (Opcional para Nota):", value="", key="cpf_cliente")
             whatsapp_cliente = st.text_input("📱 WhatsApp do Cliente (com DDD):", value=val_whats, placeholder="22999999999", key="whatsapp_cliente")
             endereco_cliente = st.text_area("📍 Endereço Completo de Entrega:", value=val_end, key="endereco_cliente")
             
@@ -250,7 +256,7 @@ if menu == "🛒 Emitir Pedido":
                 taxa_motoboy = st.number_input("Valor da Taxa (R$):", min_value=2.0, max_value=100.0, value=5.0, step=0.5, key="taxa_motoboy")
 
         with col_carrinho:
-            st.subheader("3. Resumo do Pedido")
+            st.subheader("3. Resumo & Nota Fiscal")
             
             if not st.session_state['carrinho']:
                 st.info("O carrinho está vazio no momento.")
@@ -309,21 +315,39 @@ if menu == "🛒 Emitir Pedido":
                     st.success("Venda gravada! Estoque atualizado e contato salvo com sucesso.")
                     st.rerun()
 
-                texto_comprovante = f"========================================\n"
-                texto_comprovante += f"       FARMACIA MENOR PRECO - PEDIDO    \n"
-                texto_comprovante += f"========================================\n"
-                if nome_cliente: texto_comprovante += f"Cliente: {nome_cliente}\n"
-                if endereco_cliente: texto_comprovante += f"Endereco: {endereco_cliente}\n"
-                texto_comprovante += f"----------------------------------------\nITENS DO PEDIDO:\n"
-                for idx, row in df_carrinho.iterrows():
-                    texto_comprovante += f"{row['Qtd']}x {row['Descrição']} -> R$ {row['Subtotal (R$)']:.2f}\n"
-                texto_comprovante += f"----------------------------------------\nTOTAL: R$ {total_geral:.2f}\n"
-                texto_comprovante += f"Obrigado pela preferencia!"
+                # --- NOTA FISCAL / CUPOM FISCAL ELETRÔNICO CONFIGURADO ---
+                data_hora_nf = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                texto_nf = f"""========================================
+{NOME_LOJA} - {FILIAL}
+CNPJ: {CNPJ_LOJA}
+Endereço: {ENDERECO_LOJA}
+========================================
+EXTRATO Nº {datetime.now().strftime("%H%M%S")} - CUPOM FISCAL ELETRÔNICO
+Data: {data_hora_nf}
+----------------------------------------
+CLIENTE: {nome_cliente if nome_cliente else "Consumidor"}
+CPF/CNPJ: {cpf_cliente if cpf_cliente else "Não informado"}
+----------------------------------------
+QTD | ITEM                        | TOTAL
+"""
+                for _, row in df_carrinho.iterrows():
+                    item_nome = str(row['Descrição'])[:25]
+                    texto_nf += f"{row['Qtd']}   | {item_nome:<27} | R$ {row['Subtotal (R$)']:.2f}\n"
+                
+                if cobrar_taxa:
+                    texto_nf += f"1   | Taxa de Entrega / Motoboy      | R$ {taxa_motoboy:.2f}\n"
+                
+                texto_nf += f"----------------------------------------\n"
+                texto_nf += f"VALOR TOTAL A PAGAR           | R$ {total_geral:.2f}\n"
+                texto_nf += f"========================================\n"
+                texto_nf += f"Obrigado pela preferência! Volte sempre."
+
+                st.text_area("📄 Visualização da Nota Fiscal:", value=texto_nf, height=220)
 
                 if whatsapp_cliente:
                     fone_limpo = ''.join(filter(str.isdigit, whatsapp_cliente))
-                    msg_encoded = urllib.parse.quote(texto_comprovante)
-                    st.link_button("📲 Enviar Comprovante via WhatsApp", f"https://api.whatsapp.com/send?phone=55{fone_limpo}&text={msg_encoded}", use_container_width=True)
+                    msg_encoded = urllib.parse.quote(texto_nf)
+                    st.link_button("📲 Enviar Nota Fiscal via WhatsApp", f"https://api.whatsapp.com/send?phone=55{fone_limpo}&text={msg_encoded}", use_container_width=True)
 
                 if st.button("🗑️ Limpar Carrinho", use_container_width=True):
                     st.session_state['carrinho'] = []
@@ -368,7 +392,7 @@ elif menu == "👥 Clientes & Alertas":
                 with col_a3:
                     if alt['WhatsApp'] and str(alt['WhatsApp']).strip() != 'nan':
                         fone = ''.join(filter(str.isdigit, str(alt['WhatsApp'])))
-                        msg = urllib.parse.quote(f"Olá {alt['Cliente']}, tudo bem? Notamos que faz cerca de 1 mês que você adquiriu o medicamento {alt['Último Medicamento']}. Gostaria de renovar seu pedido com a Farmácia Menor Preço?")
+                        msg = urllib.parse.quote(f"Olá {alt['Cliente']}, tudo bem? Notamos que faz cerca de 1 mês que você adquiriu o medicamento {alt['Último Medicamento']}. Gostaria de renovar seu pedido com a {NOME_LOJA}?")
                         st.link_button("📲 Cobrar Recompra", f"https://api.whatsapp.com/send?phone=55{fone}&text={msg}")
             st.divider()
         else:
@@ -419,121 +443,93 @@ elif menu == "👥 Clientes & Alertas":
             st.download_button(
                 label="📄 Baixar Lista em PDF",
                 data=pdf_bytes,
-                file_name="clientes_drogaria.pdf",
+                file_name="clientes_farma_lagos.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
-            
-            csv_data = df_clientes.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📊 Baixar Lista de Clientes (CSV)",
-                data=csv_data,
-                file_name="clientes_drogaria.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-            
-        st.divider()
-        st.subheader("➕ Novo Cliente Manual")
-        c_nome = st.text_input("Nome:", key="c_nome")
-        c_whats = st.text_input("WhatsApp (com DDD):", key="c_whats")
-        c_end = st.text_area("Endereço:", key="c_end")
-        
-        if st.button("💾 Salvar Cliente", type="primary", use_container_width=True):
-            if c_nome.strip() and c_whats.strip():
-                novo_c = pd.DataFrame([{'Nome': c_nome.strip(), 'WhatsApp': c_whats.strip(), 'Endereço': c_end.strip()}])
-                st.session_state['clientes'] = pd.concat([st.session_state['clientes'], novo_c], ignore_index=True)
-                salvar_clientes_disco(st.session_state['clientes'])
-                st.success("Cliente cadastrado com sucesso!")
-                st.rerun()
-            else:
-                st.error("Preencha Nome e WhatsApp.")
-
-    st.divider()
-    st.subheader("📜 Histórico de Compras por Cliente")
-    if not df_vendas.empty:
-        cliente_sel_hist = st.selectbox("Selecione um cliente para ver o histórico de compras:", ["Todos"] + df_clientes['Nome'].unique().tolist())
-        if cliente_sel_hist != "Todos":
-            vendas_filtradas = df_vendas[df_vendas['Cliente'] == cliente_sel_hist]
-            st.dataframe(vendas_filtradas[['Data/Hora', 'Produto', 'Qtd', 'Venda Total (R$)']], use_container_width=True)
-        else:
-            st.dataframe(df_vendas[['Data/Hora', 'Cliente', 'Produto', 'Qtd', 'Venda Total (R$)']], use_container_width=True)
 
 # ==================== ABA 3: ESTOQUE & PREÇOS ====================
 elif menu == "📋 Estoque & Preços":
-    st.header("📋 Gerenciar Estoque e Editar Preços")
+    st.header("📋 Gestão de Estoque & Precificação")
+    
     df_estoque = st.session_state['estoque']
     
-    if not df_estoque.empty:
-        st.write(f"Total de itens no estoque: **{len(df_estoque)}**")
-        busca_est = st.text_input("🔍 Buscar produto no estoque:", key="busca_est")
+    if df_estoque.empty:
+        st.info("Nenhum produto cadastrado no estoque.")
+    else:
+        pesquisa_est = st.text_input("🔍 Pesquisar produto no estoque:", "")
+        df_est_filtrado = df_estoque.copy()
+        if pesquisa_est.strip():
+            df_est_filtrado = df_estoque[df_estoque['Descrição'].str.contains(pesquisa_est, case=False, na=False)]
         
-        if busca_est:
-            filtrados = df_estoque[df_estoque['Descrição'].str.contains(busca_est, case=False, na=False)]
-            if not filtrados.empty:
-                item_edit = st.selectbox("Selecione o item para editar:", filtrados['Descrição'].tolist(), key="select_item_edit")
-                idx = df_estoque[df_estoque['Descrição'] == item_edit].index[0]
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    nova_qtd = st.number_input("Nova Qtd:", value=int(df_estoque.loc[idx, 'Quantidade']), min_value=0, key="edit_qtd")
-                with col2:
-                    novo_pv = st.number_input("Novo Preço Venda (R$):", value=float(df_estoque.loc[idx, 'Preço Unit. (R$)']), min_value=0.0, format="%.2f", key="edit_pvenda")
-                with col3:
-                    pc_atual = float(df_estoque.loc[idx, 'Preço Custo (R$)']) if 'Preço Custo (R$)' in df_estoque.columns else float(df_estoque.loc[idx, 'Preço Unit. (R$)']) * 0.6
-                    novo_pc = st.number_input("Novo Preço Custo (R$):", value=pc_atual, min_value=0.0, format="%.2f", key="edit_pcusto")
-                
-                if st.button("💾 Salvar Alterações", type="primary"):
-                    st.session_state['estoque'].loc[idx, 'Quantidade'] = nova_qtd
-                    st.session_state['estoque'].loc[idx, 'Preço Unit. (R$)'] = novo_pv
-                    st.session_state['estoque'].loc[idx, 'Preço Custo (R$)'] = novo_pc
-                    salvar_estoque_disco(st.session_state['estoque'])
-                    st.success("Produto atualizado!")
+        st.subheader("Alterar Preços e Quantidades em Tempo Real")
         
-        st.divider()
-        st.dataframe(df_estoque, use_container_width=True)
+        edited_df = st.data_editor(
+            df_est_filtrado,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="editor_estoque"
+        )
+        
+        if st.button("💾 Salvar Alterações do Estoque", type="primary"):
+            st.session_state['estoque'] = edited_df
+            salvar_estoque_disco(edited_df)
+            st.success("✅ Estoque e preços atualizados com sucesso!")
+            st.rerun()
+            
+        csv_est = df_estoque.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 Baixar Estoque em CSV", data=csv_est, file_name="estoque_farma_lagos.csv", mime="text/csv", use_container_width=True)
 
 # ==================== ABA 4: LUCROS & METAS ====================
 elif menu == "📈 Lucros & Metas":
-    st.header("📈 Relatório de Vendas, Lucros e Metas")
+    st.header("📈 Relatório de Vendas, Lucros & Metas")
+    
     df_vendas = st.session_state['vendas_historico']
     
-    col_m1, col_m2, col_m3 = st.columns(3)
-    vendas_totais = pd.to_numeric(df_vendas['Venda Total (R$)'], errors='coerce').sum() if not df_vendas.empty else 0.0
-    custo_total = pd.to_numeric(df_vendas['Custo Total (R$)'], errors='coerce').sum() if not df_vendas.empty else 0.0
-    lucro_total = vendas_totais - custo_total
-    
-    col_m1.metric("💰 Faturamento Total", f"R$ {vendas_totais:.2f}")
-    col_m2.metric("📦 Custo Total", f"R$ {custo_total:.2f}")
-    col_m3.metric("📊 Lucro Líquido", f"R$ {lucro_total:.2f}")
-    
-    st.divider()
-    if not df_vendas.empty:
-        st.subheader("📜 Todos os Pedidos Realizados")
+    if df_vendas.empty:
+        st.info("Nenhuma venda registrada até o momento.")
+    else:
+        col_m1, col_m2, col_m3 = st.columns(3)
+        total_faturado = df_vendas['Venda Total (R$)'].sum()
+        total_lucro = df_vendas['Lucro (R$)'].sum()
+        total_itens_vendidos = df_vendas['Qtd'].sum()
+        
+        with col_m1:
+            st.metric("💰 Faturamento Total", f"R$ {total_faturado:.2f}")
+        with col_m2:
+            st.metric("📊 Lucro Total Estimado", f"R$ {total_lucro:.2f}")
+        with col_m3:
+            st.metric("📦 Total de Itens Vendidos", f"{total_itens_vendidos} un")
+            
+        st.divider()
+        st.subheader("📋 Histórico Completo de Vendas")
         st.dataframe(df_vendas, use_container_width=True)
+        
+        csv_vendas = df_vendas.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 Baixar Relatório de Vendas (CSV)", data=csv_vendas, file_name="vendas_farma_lagos.csv", mime="text/csv")
 
 # ==================== ABA 5: NOVO PRODUTO ====================
 elif menu == "➕ Novo Produto":
-    st.header("➕ Cadastrar Novo Produto Manualmente")
+    st.header("➕ Cadastrar Novo Produto")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        nome = st.text_input("Nome do Produto", key="nome_prod")
-        preco_venda = st.number_input("Preço de Venda (R$)", min_value=0.0, format="%.2f", key="preco_prod")
-    with col2:
-        preco_custo = st.number_input("Preço de Custo (R$)", min_value=0.0, format="%.2f", key="preco_custo_prod")
-        qtd = st.number_input("Quantidade em Estoque", min_value=1, step=1, key="qtd_prod")
+    with st.form("form_novo_produto"):
+        desc_novo = st.text_input("Descrição / Nome do Medicamento:")
+        qtd_novo = st.number_input("Quantidade Inicial em Estoque:", min_value=0, value=10, step=1)
+        preco_venda_novo = st.number_input("Preço de Venda Unitário (R$):", min_value=0.0, value=10.0, format="%.2f")
+        preco_custo_novo = st.number_input("Preço de Custo Unitário (R$):", min_value=0.0, value=6.0, format="%.2f")
         
-    if st.button("💾 Salvar Produto", key="btn_salvar_manual", type="primary"):
-        if nome.strip():
-            novo_item = pd.DataFrame([{
-                'Descrição': nome.strip().upper(), 
-                'Quantidade': int(qtd), 
-                'Preço Unit. (R$)': float(preco_venda),
-                'Preço Custo (R$)': float(preco_custo)
-            }])
-            st.session_state['estoque'] = pd.concat([st.session_state['estoque'], novo_item], ignore_index=True)
-            salvar_estoque_disco(st.session_state['estoque'])
-            st.success(f"✅ Produto '{nome.upper()}' cadastrado com sucesso!")
-        else:
-            st.error("Por favor, digite o nome do produto.")
+        cadastrar_btn = st.form_submit_button("Cadastrar Produto", use_container_width=True)
+        
+        if cadastrar_btn:
+            if desc_novo.strip():
+                novo_item = pd.DataFrame([{
+                    'Descrição': desc_novo.strip(),
+                    'Quantidade': int(qtd_novo),
+                    'Preço Unit. (R$)': float(preco_venda_novo),
+                    'Preço Custo (R$)': float(preco_custo_novo)
+                }])
+                st.session_state['estoque'] = pd.concat([st.session_state['estoque'], novo_item], ignore_index=True)
+                salvar_estoque_disco(st.session_state['estoque'])
+                st.success(f"✅ Produto '{desc_novo}' cadastrado com sucesso!")
+            else:
+                st.warning("⚠️ Insira uma descrição válida para o produto.")
