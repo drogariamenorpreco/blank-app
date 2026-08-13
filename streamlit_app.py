@@ -16,26 +16,13 @@ def get_brasilia_time():
 def carregar_dados():
     try:
         df = pd.read_csv("estoque_drogaria.csv")
-        # Limpa espaços e nomes das colunas para evitar o erro
         df.columns = df.columns.str.strip()
-        
-        # Mapeamento flexível das colunas do seu CSV
-        mapeamento = {
-            "Descrição": "Produto",
-            "Quantidade": "Estoque",
-            "Preço": "Preco",
-            "Preco": "Preco" # Caso já esteja sem acento
-        }
-        df = df.rename(columns=mapeamento)
-        
-        # Garantia final: pega a 3ª coluna se "Preco" não for encontrada
+        df = df.rename(columns={"Descrição": "Produto", "Quantidade": "Estoque", "Preço": "Preco"})
         if "Preco" not in df.columns:
             df = df.rename(columns={df.columns[2]: "Preco"})
-            
         return df
-    except Exception as e:
-        st.error(f"Erro ao ler arquivo: {e}")
-        return pd.DataFrame()
+    except:
+        return pd.DataFrame(columns=["Produto", "Preco", "Estoque"])
 
 df = carregar_dados()
 
@@ -45,7 +32,7 @@ if 'carrinho' not in st.session_state:
 menu = st.sidebar.radio("Navegação:", ["PDV & Vendas", "Estoque"])
 
 if menu == "PDV & Vendas":
-    st.subheader("🛒 Carrinho")
+    st.subheader("🛒 Carrinho com Desconto")
     
     pesquisa = st.text_input("🔍 Buscar produto:")
     if pesquisa:
@@ -54,41 +41,46 @@ if menu == "PDV & Vendas":
             prod = st.selectbox("Selecione:", df_f["Produto"].tolist())
             dados = df_f[df_f["Produto"] == prod].iloc[0]
             
-            # Garantia de valor numérico
-            preco_default = float(dados["Preco"]) if pd.notnull(dados["Preco"]) else 0.0
-            
-            preco_edit = st.number_input("Preço Unitário (R$):", value=preco_default, format="%.2f")
+            # Preço venda final (já com desconto)
+            preco_final = st.number_input("Preço de Venda Final (R$):", value=float(dados["Preco"]), format="%.2f")
             qtd = st.number_input("Quantidade:", min_value=1, value=1)
             
             if st.button("➕ Adicionar ao Carrinho"):
-                st.session_state.carrinho.append({"Produto": prod, "Preco": preco_edit, "Qtd": qtd})
-                st.rerun()
+                # Cálculos de desconto
+                preco_cheio = preco_final / 0.85
+                economia = preco_cheio - preco_final
+                st.session_state.carrinho.append({
+                    "Produto": prod, "Preco_Final": preco_final, 
+                    "Preco_Cheio": preco_cheio, "Economia": economia, "Qtd": qtd
+                })
+                st.success(f"{prod} adicionado com 15% de desconto!")
 
     if st.session_state.carrinho:
-        total_produtos = 0
+        total_final = 0
+        total_economia = 0
         lista_itens = ""
+        
         for i, item in enumerate(st.session_state.carrinho):
-            sub = item['Preco'] * item['Qtd']
-            total_produtos += sub
-            lista_itens += f"{i+1:02d} | {item['Qtd']}x {item['Produto']} | R$ {item['Preco']:.2f} | Sub: R$ {sub:.2f}\n"
+            sub = item['Preco_Final'] * item['Qtd']
+            total_final += sub
+            total_economia += (item['Economia'] * item['Qtd'])
+            lista_itens += f"{i+1:02d} | {item['Qtd']}x {item['Produto']}\n"
+            lista_itens += f"   De: R$ {item['Preco_Cheio']:.2f} por: R$ {item['Preco_Final']:.2f}\n"
+            lista_itens += f"   Economia: R$ {item['Economia']:.2f}\n"
 
         st.write("---")
-        usar_entrega = st.checkbox("🚚 Adicionar entrega?")
-        taxa = 0.0
-        endereco = ""
-        if usar_entrega:
-            endereco = st.text_input("Endereço do Cliente:")
-            taxa = st.number_input("Valor da Taxa de Entrega (R$):", value=5.00)
+        usar_entrega = st.checkbox("🚚 Adicionar taxa de entrega?")
+        taxa = st.number_input("Valor da Taxa (R$):", value=5.00) if usar_entrega else 0.0
         
-        total_final = total_produtos + taxa
         cliente = st.text_input("Nome do Cliente:")
         whatsapp = st.text_input("WhatsApp (ex: 22999999999):")
         
         if st.button("✅ GERAR NOTA E ENVIAR WHATSAPP"):
-            msg = f"FARMA BÚZIOS\nCNPJ: 68.530.976/0001-00\n----------------------------\nDATA: {get_brasilia_time().strftime('%d/%m/%Y %H:%M')}\nCLIENTE: {cliente}\n----------------------------\nCOD | QTD | DESC | UNIT | TOTAL\n{lista_itens}----------------------------\n"
-            if usar_entrega:
-                msg += f"ENTREGA: {endereco}\nTAXA: R$ {taxa:.2f}\n----------------------------\n"
-            msg += f"TOTAL A PAGAR: R$ {total_final:.2f}\n============================\nObrigado pela preferência!"
+            msg = f"FARMA BÚZIOS\nCNPJ: 68.530.976/0001-00\n----------------------------\n"
+            msg += f"DATA: {get_brasilia_time().strftime('%d/%m/%Y %H:%M')}\nCLIENTE: {cliente}\n----------------------------\n"
+            msg += f"ITENS:\n{lista_itens}----------------------------\n"
+            if usar_entrega: msg += f"TAXA DE ENTREGA: R$ {taxa:.2f}\n----------------------------\n"
+            msg += f"TOTAL A PAGAR: R$ {total_final + taxa:.2f}\nVOCÊ ECONOMIZOU: R$ {total_economia:.2f}\n============================\nObrigado pela preferência!"
             
             link = f"https://wa.me/55{whatsapp}?text={urllib.parse.quote(msg)}"
             st.markdown(f"[🔗 CLIQUE AQUI PARA ENVIAR A NOTA NO WHATSAPP]({link})")
