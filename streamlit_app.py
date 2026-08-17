@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import urllib.parse
+from fpdf import FPDF
+import tempfile
+import os
 
 # Configuração da Página
 st.set_page_config(page_title="FARMA BÚZIOS - PDV", page_icon="💊", layout="centered")
@@ -41,12 +44,10 @@ if menu == "PDV & Vendas":
             prod = st.selectbox("Selecione:", df_f["Produto"].tolist())
             dados = df_f[df_f["Produto"] == prod].iloc[0]
             
-            # Preço venda final (já com desconto)
             preco_final = st.number_input("Preço de Venda Final (R$):", value=float(dados["Preco"]), format="%.2f")
             qtd = st.number_input("Quantidade:", min_value=1, value=1)
             
             if st.button("➕ Adicionar ao Carrinho"):
-                # Cálculos de desconto
                 preco_cheio = preco_final / 0.85
                 economia = preco_cheio - preco_final
                 st.session_state.carrinho.append({
@@ -75,16 +76,44 @@ if menu == "PDV & Vendas":
         cliente = st.text_input("Nome do Cliente:")
         whatsapp = st.text_input("WhatsApp (ex: 22999999999):")
         
-        if st.button("✅ GERAR NOTA E ENVIAR WHATSAPP"):
+        if st.button("✅ GERAR NOTA E OPÇÕES"):
             msg = f"FARMA BÚZIOS\nCNPJ: 68.530.976/0001-00\n----------------------------\n"
             msg += f"DATA: {get_brasilia_time().strftime('%d/%m/%Y %H:%M')}\nCLIENTE: {cliente}\n----------------------------\n"
             msg += f"ITENS:\n{lista_itens}----------------------------\n"
             if usar_entrega: msg += f"TAXA DE ENTREGA: R$ {taxa:.2f}\n----------------------------\n"
             msg += f"TOTAL A PAGAR: R$ {total_final + taxa:.2f}\nVOCÊ ECONOMIZOU: R$ {total_economia:.2f}\n============================\nObrigado pela preferência!"
             
-            link = f"https://wa.me/55{whatsapp}?text={urllib.parse.quote(msg)}"
-            st.markdown(f"[🔗 CLIQUE AQUI PARA ENVIAR A NOTA NO WHATSAPP]({link})")
             st.code(msg)
+            
+            link = f"https://wa.me/55{whatsapp}?text={urllib.parse.quote(msg)}"
+            st.markdown(f"[🔗 CLIQUE AQUI PARA ENVIAR NO WHATSAPP]({link})")
+            
+            # Geração do PDF usando FPDF (compatível com o que já está instalado)
+            pdf = FPDF(unit="mm", format=(58, 200)) # Formato bobina térmica
+            pdf.add_page()
+            pdf.set_font("Arial", size=8)
+            
+            for line in msg.split('\n'):
+                # Substitui caracteres especiais para evitar erros de codificação no FPDF padrão
+                clean_line = line.encode('latin-1', 'ignore').decode('latin-1')
+                pdf.cell(0, 5, txt=clean_line, ln=True)
+            
+            # Salva o PDF em arquivo temporário para download
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                pdf.output(tmp_file.name)
+                tmp_path = tmp_file.name
+
+            with open(tmp_path, "rb") as f:
+                pdf_bytes = f.read()
+            
+            os.unlink(tmp_path)
+            
+            st.download_button(
+                label="📥 BAIXAR NOTINHA EM PDF",
+                data=pdf_bytes,
+                file_name=f"nota_{cliente}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                mime="application/pdf"
+            )
 
 else:
     st.dataframe(df)
